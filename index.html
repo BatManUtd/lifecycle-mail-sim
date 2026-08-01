@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lifecycle Mail Sim — dry-run your lifecycle email programs</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">&#9993;</span>
+      <div>
+        <h1>Lifecycle Mail Sim</h1>
+        <p class="tagline">See exactly which email each contact would get today, and why — before anything sends.</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-load-sample" class="btn btn-primary">Load Sample Data</button>
+      <label class="btn btn-secondary" for="csv-file-input">Import CSV</label>
+      <input type="file" id="csv-file-input" accept=".csv" hidden />
+      <button id="btn-reset" class="btn btn-ghost" hidden>Reset all data</button>
+    </div>
+  </header>
+
+  <div class="disclaimer-banner">
+    <strong>This is a rules model you configure</strong> — it applies the conditions, frequency caps, and
+    priorities you define below to the contacts you import. It is <em>not</em> a live read of your actual
+    HubSpot / Marketo / Customer.io / Braze campaigns, and a hand-built rules engine can't guarantee it
+    matches how any given platform really handles suppression or dedup. Treat results as a second opinion
+    to sanity-check your setup, not as ground truth.
+  </div>
+
+  <main id="main-content">
+
+    <!-- Fatal import errors must stay visible regardless of whether contacts are loaded, so this
+         panel lives outside #app-body (which is hidden entirely via [hidden] when there is no
+         contact data) instead of nested inside it. -->
+    <div id="import-summary" class="panel" hidden></div>
+
+    <section id="empty-state" class="empty-state">
+      <div class="empty-card">
+        <div class="empty-icon" aria-hidden="true">&#128237;</div>
+        <h2>No contacts loaded yet</h2>
+        <p>Load the bundled sample dataset (20 contacts, 6 pre-built campaigns) to see a suppression block, a
+          frequency-cap block, and a same-day conflict within seconds — or import your own CSV to start fresh.</p>
+        <div class="empty-actions">
+          <button id="btn-load-sample-2" class="btn btn-primary btn-lg">Load Sample Data</button>
+          <label class="btn btn-secondary btn-lg" for="csv-file-input-2">Import CSV</label>
+          <input type="file" id="csv-file-input-2" accept=".csv" hidden />
+        </div>
+      </div>
+    </section>
+
+    <section id="app-body" hidden>
+
+      <div class="grid-2col">
+        <section class="panel" id="contacts-panel">
+          <h2>Contacts <span id="contacts-count" class="badge">0</span></h2>
+          <p class="section-note">Required columns: contact_id, lifecycle_stage, plan, renewal_date, payment_status, last_email_sent_date, unsubscribed (+ optional custom fields).</p>
+          <div class="table-scroll">
+            <table id="contacts-table">
+              <thead><tr>
+                <th>ID</th><th>Stage</th><th>Plan</th><th>Renewal</th><th>Payment</th><th>Last email</th><th>Unsub</th>
+              </tr></thead>
+              <tbody id="contacts-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="campaigns-panel">
+          <h2>Campaigns <span id="campaigns-count" class="badge">0</span></h2>
+          <p class="section-note">Flat AND-only conditions per campaign — no nested boolean logic.</p>
+          <div id="campaigns-list"></div>
+          <button id="btn-new-campaign" class="btn btn-secondary">+ New Campaign</button>
+        </section>
+      </div>
+
+      <section class="panel" id="suppression-panel">
+        <h2>Built-in Suppression Rules</h2>
+        <p class="section-note">These always apply, for every campaign, and cannot be edited or turned off (except the global cap, which is opt-in).</p>
+        <ul class="suppression-list">
+          <li><strong>Unsubscribed</strong> — a contact who has unsubscribed never receives any campaign.</li>
+          <li><strong>Already paid</strong> — payment_reminder campaigns are suppressed when payment_status is "paid".</li>
+          <li><strong>Frequency cap exceeded</strong> — each campaign's own max-per-rolling-N-days cap, counted from that contact's send history (seeded from last_email_sent_date plus anything sent earlier in this simulation).</li>
+          <li><strong>Global daily send cap</strong> — optional; caps total emails per contact per day across all campaigns.</li>
+        </ul>
+        <div class="global-cap-toggle">
+          <label><input type="checkbox" id="global-cap-enabled" /> Enable global daily send cap</label>
+          <input type="number" id="global-cap-max" min="1" value="1" />
+          <span>email(s) per contact per day</span>
+        </div>
+      </section>
+
+      <section class="panel" id="simulate-panel">
+        <h2>Simulate</h2>
+        <p class="section-note">Same-day tie-break rule: campaigns are ordered by ascending priority (lower number sends first); equal priority is broken alphabetically by campaign name. Any contact with 2+ sends on one day is flagged as a conflict.</p>
+        <div class="simulate-controls">
+          <label>Start date <input type="date" id="sim-start-date" /></label>
+          <label>End date (optional range) <input type="date" id="sim-end-date" /></label>
+          <button id="btn-simulate" class="btn btn-primary">Simulate</button>
+        </div>
+      </section>
+
+      <section class="panel" id="results-panel" hidden>
+        <div class="results-header">
+          <h2>Results</h2>
+          <div class="results-actions">
+            <button id="btn-copy-results" class="btn btn-secondary btn-sm">Copy as CSV</button>
+            <button id="btn-export-results" class="btn btn-secondary btn-sm">Download CSV</button>
+          </div>
+        </div>
+        <div id="results-summary" class="results-summary"></div>
+        <div id="dead-campaigns-summary"></div>
+        <div id="results-list"></div>
+      </section>
+
+    </section>
+  </main>
+
+  <div id="campaign-modal" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2 id="campaign-modal-title">New Campaign</h2>
+      <div id="campaign-form-errors" class="form-errors" hidden></div>
+      <form id="campaign-form">
+        <input type="hidden" id="cf-id" />
+        <div class="form-row-inline">
+          <div class="form-row">
+            <label for="cf-name">Campaign name</label>
+            <input type="text" id="cf-name" required />
+          </div>
+          <div class="form-row">
+            <label for="cf-type">Type</label>
+            <select id="cf-type"></select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label>Conditions (all must match — AND only)</label>
+          <div id="cf-conditions"></div>
+          <button type="button" id="btn-add-condition" class="btn btn-secondary btn-sm">+ Add condition</button>
+        </div>
+
+        <div class="form-row-inline">
+          <div class="form-row">
+            <label for="cf-freq-max">Frequency cap: max emails</label>
+            <input type="number" id="cf-freq-max" min="1" value="1" required />
+          </div>
+          <div class="form-row">
+            <label for="cf-freq-days">...per rolling N days</label>
+            <input type="number" id="cf-freq-days" min="1" value="7" required />
+          </div>
+          <div class="form-row">
+            <label for="cf-priority">Priority (tie-break; lower sends first)</label>
+            <input type="number" id="cf-priority" value="10" required />
+            <div class="form-help">Ties are allowed — same-day ties break alphabetically by name.</div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="btn-delete-campaign" class="btn btn-ghost" hidden>Delete campaign</button>
+          <div style="display:flex; gap:8px;">
+            <button type="button" id="btn-cancel-campaign" class="btn btn-secondary">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save campaign</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+</div>
+
+<script src="src/csv.js"></script>
+<script src="src/engine.js"></script>
+<script src="src/sample-data.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>

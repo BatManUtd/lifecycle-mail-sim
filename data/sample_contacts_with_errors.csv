@@ -1,0 +1,7 @@
+contact_id,lifecycle_stage,plan,renewal_date,payment_status,last_email_sent_date,unsubscribed,region
+E001,lead,free,,none,2026-07-26,false,NA
+E002,trial,pro,13/40/2026,none,,false,NA
+,customer,pro,2026-08-05,overdue,,false,NA
+E004,customer,pro,2026-08-10,paid,not-a-date,false,NA
+E005,lead,free,,none,,maybe,NA
+E006,trial,free,,none,,false
